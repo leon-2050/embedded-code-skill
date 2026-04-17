@@ -1,0 +1,107 @@
+[
+  {
+    "id": 1,
+    "category": "GENERATE",
+    "prompt": "生成一个 STM32 UART 驱动，基地址 0x4000C000，需要包含：\\n1. uart_reg.h - 寄存器结构体定义\\n2. uart.h - 公共接口\\n3. uart.c - 实现，包含 init/send/receive 函数\\n\\n要求：使用 stdint.h 类型，错误处理返回 embedded_code_status_t，无 malloc/VLA，不得伪造未提供的位定义。",
+    "expected": {
+      "files": [
+        "uart_reg.h",
+        "uart.h",
+        "uart.c"
+      ],
+      "features": [
+        "volatile uint32_t 寄存器结构体",
+        "MASK/SHIFT 位字段宏",
+        "SCREAMING_SNAKE 常量",
+        "camelCase 函数",
+        "错误处理枚举"
+      ],
+      "forbidden": [
+        "malloc",
+        "VLA",
+        "魔法数字",
+        "char/short/int 类型"
+      ]
+    }
+  },
+  {
+    "id": 2,
+    "category": "GENERATE",
+    "prompt": "为一个 RISC-V 平台生成 GPIO 驱动，基地址 0x10012000，包含：\\n1. gpio_reg.h\\n2. gpio.h\\n3. gpio.c\\n\\n要求：配置引脚输入/输出、读取引脚状态、设置引脚电平。所有寄存器定义都要明确标注为示例或来自用户输入。",
+    "expected": {
+      "files": [
+        "gpio_reg.h",
+        "gpio.h",
+        "gpio.c"
+      ],
+      "features": [
+        "GPIO_BASE_ADDR 宏定义",
+        "volatile uint32_t 寄存器结构体",
+        "输入/输出配置函数",
+        "电平设置/读取函数"
+      ],
+      "platform": "RISC-V"
+    }
+  },
+  {
+    "id": 3,
+    "category": "REWRITE",
+    "prompt": "重写以下代码为符合嵌入式 C 规范的版本，并保留原有行为意图：\\n\\n```c\\nvoid spiInit() {\\n    SPI_CTRL = 0x47U;\\n    SPI_BAUD = 250U;\\n    SPI_CTRL |= (1U << 7);\\n}\\n\\nchar spiRead() {\\n    return SPI_DATA;\\n}\\n```\\n\\n要求：结果必须可编译，不保留原始的类型和命名缺陷。",
+    "expected": {
+      "requirements": [
+        "独立 spi_reg.h 文件",
+        "volatile uint32_t 类型",
+        "SCREAMING_SNAKE 宏定义",
+        "embedded_code_status_t 返回值",
+        "必要的输入校验"
+      ],
+      "checkpoints": [
+        "无魔法数字 0x47/250",
+        "无 char/short 类型",
+        "有说明约束的注释",
+        "camelCase 函数名",
+        "结果可编译"
+      ]
+    }
+  },
+  {
+    "id": 4,
+    "category": "REVIEW",
+    "prompt": "检查以下代码是否符合嵌入式 C 规范：\\n\\n```c\\ntypedef struct {\\n    __I uint32_t DATA;\\n    __IO uint32_t CTRL;\\n} spi_t;\\n\\n#define SPI_BASE 0xA0010000\\n\\nvoid spiInit() {\\n    *(volatile uint32_t *)SPI_BASE = 0U;\\n}\\n```",
+    "expected": {
+      "issues": [
+        "__I/__IO 前缀不可移植",
+        "SPI_BASE 应为 SPI_BASE_ADDR 风格",
+        "直接址赋值应通过结构体",
+        "缺少错误处理",
+        "缺少模块化寄存器抽象"
+      ],
+      "compliant": false
+    }
+  },
+  {
+    "id": 5,
+    "category": "GENERATE",
+    "prompt": "生成 STM32 I2C 驱动，基地址 0x40005400，包含：\\n1. i2c_reg.h\\n2. i2c.h\\n3. i2c.c\\n\\n要求：支持主机发送、主机接收、超时处理、错误检测。示例位定义必须标注其来源或标注为占位模板。",
+    "expected": {
+      "files": [
+        "i2c_reg.h",
+        "i2c.h",
+        "i2c.c"
+      ],
+      "features": [
+        "I2C_BASE_ADDR 宏定义",
+        "volatile uint32_t 寄存器结构体",
+        "主机发送/接收函数",
+        "超时检测",
+        "错误状态返回"
+      ],
+      "quality": [
+        "完整错误处理 embedded_code_status_t",
+        "无魔法数字",
+        "注释解释约束",
+        "camelCase 函数"
+      ]
+    }
+  }
+]
