@@ -1,4 +1,4 @@
-# embedded-code-skill
+# embedded code skill
 
 > 嵌入式 C 代码规范包，用于生成、重写、审查驱动和低层固件代码。
 
