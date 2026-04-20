@@ -1,5 +1,5 @@
 ---
-name: embedded-code-skill
+name: ecs
 description: "生成、重写、审查嵌入式 C 代码。覆盖驱动、寄存器抽象层、固件模块。强制类型安全、寄存器抽象规范、完整错误处理、可编译可审查输出。禁止伪造硬件参数。"
 user-invocable: true
 ---

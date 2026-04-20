@@ -1,6 +1,6 @@
 # Embedded Code Skill Evaluation Notes
 
-This directory documents a manual evaluation workflow for `embedded-code-skill`.
+This directory documents a manual evaluation workflow for `ecs`.
 
 ## Contents
 

@@ -1,13 +1,13 @@
 ---
 name: embedded-code-evolution
-description: "Manual evaluation and improvement playbook for the embedded-code-skill package. Use when the user wants to assess the package quality, compare revisions, or improve wording and examples without pretending that a full auto-evolution engine exists."
+description: "Manual evaluation and improvement playbook for the ecs package. Use when the user wants to assess the package quality, compare revisions, or improve wording and examples without pretending that a full auto-evolution engine exists."
 ---
 
 # Embedded Code Skill 评估与改进流程
 
 ## 这是什么
 
-这是一个**人工执行的评估流程说明**，用于帮助操作者系统化地改进 `embedded-code-skill`。
+这是一个**人工执行的评估流程说明**，用于帮助操作者系统化地改进 `ecs`。
 
 它提供：
 

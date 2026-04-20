@@ -30,9 +30,9 @@
 ## 快速开始
 
 ```bash
-/embedded-code-skill 生成一个 STM32 UART 驱动，基地址 0x4000C000
-/embedded-code-skill 重写这段 SPI 初始化代码并保持行为意图
-/embedded-code-skill 审查这段 GPIO 驱动是否符合规范
+/ecs 生成一个 STM32 UART 驱动，基地址 0x4000C000
+/ecs 重写这段 SPI 初始化代码并保持行为意图
+/ecs 审查这段 GPIO 驱动是否符合规范
 ```
 
 ---

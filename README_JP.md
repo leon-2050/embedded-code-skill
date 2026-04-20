@@ -30,9 +30,9 @@
 ## クイックスタート
 
 ```bash
-/embedded-code-skill STM32 UART ドライバを生成、ベースアドレス 0x4000C000
-/embedded-code-skill この SPI 初期化コードを、振る舞いの意図を保って書き換える
-/embedded-code-skill この GPIO ドライバを規約に照らしてレビューする
+/ecs STM32 UART ドライバを生成、ベースアドレス 0x4000C000
+/ecs この SPI 初期化コードを、振る舞いの意図を保って書き換える
+/ecs この GPIO ドライバを規約に照らしてレビューする
 ```
 
 ---

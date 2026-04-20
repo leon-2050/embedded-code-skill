@@ -30,9 +30,9 @@ It is **not** a substitute for the target vendor reference manual.
 ## Quick Start
 
 ```bash
-/embedded-code-skill Generate an STM32 UART driver with base address 0x4000C000
-/embedded-code-skill Rewrite this SPI init code while preserving behavior intent
-/embedded-code-skill Review this GPIO driver against the house style
+/ecs Generate an STM32 UART driver with base address 0x4000C000
+/ecs Rewrite this SPI init code while preserving behavior intent
+/ecs Review this GPIO driver against the house style
 ```
 
 ---
