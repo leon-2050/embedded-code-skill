@@ -6,6 +6,7 @@
   <img src="https://img.shields.io/badge/Claude%20Code-5678a0?style=flat-square&logo=anthropic&logoColor=white" alt="Claude Code" />
   <img src="https://img.shields.io/badge/Cursor-7C3AED?style=flat-square&logo=cursor&logoColor=white" alt="Cursor" />
   <img src="https://img.shields.io/badge/VSCode-007ACC?style=flat-square&logo=visualstudiocode&logoColor=white" alt="VSCode" />
+  <img src="https://img.shields.io/badge/no%20malloc-success?style=flat-square" alt="No malloc" />
 </p>
 
 > 嵌入式 C 代码助手，用于写驱动骨架、整理旧代码、审查低层固件，并把同一套规则适配到不同 IDE 或 agent 环境。
