@@ -1,6 +1,7 @@
 ---
 name: embedded-code-skill
 description: "Generate, rewrite, review, or package embedded C guidance for firmware, drivers, HAL/BSP layers, register access, ISRs, DMA, and low-level MCU/SoC modules. Use in Codex, Cursor, VS Code, Claude-compatible agents, or generic IDE agents; adapt to the target repository's existing status types, naming, vendor SDK, build macros, and hardware sources before applying the fallback house style."
+argument-hint: 'Describe the embedded peripheral, review task, or adaptation target.'
 user-invocable: true
 ---
 
