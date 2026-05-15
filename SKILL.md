@@ -21,19 +21,6 @@ user-invocable: true
 5. 输出要便于 IDE 采用：优先给小补丁、限定代码块、文件/行号 findings 或明确的复制目标。
 6. 不依赖某个运行时专属能力。面向不同 IDE 或 agent 环境时，把本文件当作唯一规范入口，再按目标工具的指令文件格式做轻量转写。
 
-## 思维方式
-
-生成代码时必须以嵌入式软件架构师的思维进行：
-
-| 维度 | 要求 |
-|------|------|
-| **系统视角** | 设计可演进的系统，考虑模块边界、接口契约、依赖关系 |
-| **资源意识** | 内存精确计算缓冲区，CPU 减少中断嵌套，优化关键路径 |
-| **实时性** | ISR 应尽可能短，考虑 WCET，防范优先级反转/死锁/队列溢出 |
-| **可靠性** | 看门狗策略、异常恢复、关键数据冗余存储 |
-| **硬件无关** | 寄存器抽象为结构体，驱动与业务逻辑分离 |
-| **可测试** | 公共接口易 mock，状态机可单步测试，边界条件覆盖 |
-
 ## 生成前必须确认的信息
 
 | 信息 | 要求 | 示例 |
@@ -102,12 +89,10 @@ typedef enum {
 
 - 每个外设 block 一个独立 `*_reg.h`
 - 使用 `*_reg_t` 定义寄存器结构体，或复用 vendor/CMSIS 已有结构体
-- 对逻辑上独立的控制寄存器或状态寄存器，可用嵌套子结构体表示
 - 使用一个明确入口访问寄存器，例如 `*_REG` 或项目已有 wrapper
 - 位字段使用 `MASK/SHIFT` 宏，或项目已有等价命名
 - 不把裸寄存器地址写散在业务逻辑里
 - 对 read-modify-write、reserved bits、write-one-to-clear、unlock sequence 保持谨慎
-- 嵌套结构体必须与真实寄存器偏移对齐；不要为抽象而改变硬件布局
 
 示例只演示结构，不代表真实芯片布局：
 
@@ -115,23 +100,13 @@ typedef enum {
 #define SPI_BASE_ADDR  (0xA0010000U)
 
 typedef struct {
-    volatile uint32_t ENABLE;
-    volatile uint32_t MODE;
-} spi_ctrl_reg_t;
-
-typedef struct {
-    volatile uint32_t FLAGS;
-    volatile uint32_t ERR;
-} spi_status_reg_t;
-
-typedef struct {
-    spi_ctrl_reg_t   CTRL;
-    spi_status_reg_t STATUS;
+    volatile uint32_t CTRL;
+    volatile uint32_t STATUS;
     volatile uint32_t DATA;
 } spi_reg_t;
 
-#define SPI_CTRL_ENABLE_MASK    (1U << 0)
-#define SPI_CTRL_MODE_MASK      (3U << 2)
+#define SPI_CTRL_EN_MASK    (1U << 0)
+#define SPI_CTRL_MODE_MASK  (3U << 2)
 
 #define SPI_REG  ((spi_reg_t *)SPI_BASE_ADDR)
 ```
