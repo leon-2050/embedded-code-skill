@@ -2,7 +2,7 @@
 version: 1.0.0
 name: embedded-code-skill
 description: "嵌入式 C 代码规范化助手：驱动骨架、旧代码整理、代码审查、寄存器重构"
-command: ecs
+command: embedded-code-skill
 user-invocable: true
 triggers:
   - embedded
@@ -798,10 +798,9 @@ MEMORY 中 FLASH 放 `.text`/`.rodata`，RAM 放 `.data`/`.bss`；`__data_start/
 ### 9.1 回查清单
 
 - [ ] 仓库已有代码符合本规范则沿用，不符合则在不改变逻辑的前提下修改
-- [ ] 驱动层与应用层分层清晰：应用层不直写寄存器，驱动层不含业务逻辑，ISR 通过回调通知应用层
+- [ ] 驱动层与应用层分层清晰：应用层不直写寄存器，驱动层不含业务逻辑，必须符合强解耦标准
 - [ ] 硬件常量来自用户、仓库或 placeholder
 - [ ] 不编造寄存器/IRQ/barrier/cache 规则
-- [ ] 驱动层与应用层分层清晰：应用层不直写寄存器，驱动层不含业务逻辑，必须符合强解耦标准
 - [ ] 每个外设寄存器块均已定义为 `*_reg_t` 结构体（非散落 `#define` 地址宏）
 - [ ] reserved 区域已用 `RESERVED[n]` 占位，只读寄存器已加 `const`
 - [ ] 复用 vendor/CMSIS 结构（若项目已有）
