@@ -91,10 +91,8 @@ Five-file layout: `module_reg.h` → `module_drv.h/.c` → `module.h/.c`
 | §5 | Architecture rules (Cortex-M/A, ESP32, RISC-V, etc.) |
 | §6 | RTOS guidance (FreeRTOS/Zephyr/RT-Thread) |
 | §7 | Build system (linker scripts, CMake) |
-| §8 | Test and debug |
-| §9 | Industry domains (aerospace/military/industrial/automotive) |
-| §10-12 | Memory and concurrency, anti-patterns, review checklist |
-
+| §8 | Memory, safety, and concurrency defaults |
+| §9 | Review checklist & maintenance self-check |
 See [SKILL.md](SKILL.md) for full specifications.
 
 ---
