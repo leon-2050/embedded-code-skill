@@ -23,21 +23,31 @@
 
 REWRITE/REVIEW must follow the three-layer architecture:
 
-```
-┌──────────────────────────────────────┐
-│  Application (module.h / module.c)   │
-│  Buffers, protocol, public API      │
-│  ✗ No direct register writes  ✗ No ISR │
-├──────────────────────────────────────┤
-│  Driver (module_drv.h / .c)         │
-│  Register R/W, ISR, DMA            │
-│  ✗ No business logic  ✗ No buffer alloc │
-│  → ISR notifies app via callbacks   │
-├──────────────────────────────────────┤
-│  Register (module_reg.h)            │
-│  Structs, bit defs, base macros    │
-│  ✗ No function implementations     │
-└──────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph App[Application Layer]
+        direction TB
+        AppH["module.h / module.c"]
+        AppD["Buffers · Protocols · Public API"]
+        AppR["✗ No direct register writes  ✗ No ISR"]
+    end
+
+    subgraph Drv[Driver Layer]
+        direction TB
+        DrvH["module_drv.h / module_drv.c"]
+        DrvD["Register R/W · ISR Handling · DMA"]
+        DrvR["✗ No business logic  ✗ No buffer alloc"]
+    end
+
+    subgraph Reg[Register Layer]
+        direction TB
+        RegH["module_reg.h"]
+        RegD["Register structs · Bit defs · Base macros"]
+        RegR["✗ No function implementations"]
+    end
+
+    App -->|"ISR notifies via callback"| Drv
+    Drv -->|"Access via struct"| Reg
 ```
 
 Five-file layout: `module_reg.h` → `module_drv.h/.c` → `module.h/.c`
@@ -48,13 +58,13 @@ Five-file layout: `module_reg.h` → `module_drv.h/.c` → `module.h/.c`
 
 ```bash
 # REWRITE: Clean up UART driver, preserve register write order
-/ecs Clean up this UART driver into three layers
+/embedded-code-skill Clean up this UART driver into three layers
 
 # REVIEW: Audit DMA ISR risks
-/ecs Review this DMA ISR for race or cache issues
+/embedded-code-skill Review this DMA ISR for race or cache issues
 
 # GUIDE: RTOS task design
-/ecs Design FreeRTOS task priorities and stack sizes
+/embedded-code-skill Design FreeRTOS task priorities and stack sizes
 ```
 
 ---

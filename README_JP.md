@@ -23,21 +23,31 @@
 
 REWRITE/REVIEW は三層アーキテクチャに従う必要があります：
 
-```
-┌──────────────────────────────────────┐
-│  アプリ層 (module.h / module.c)     │
-│  バッファ管理、プロトコル、公開 API   │
-│  ✗ レジスタ直接書き込み禁止  ✗ ISR 禁止 │
-├──────────────────────────────────────┤
-│  ドライバ層 (module_drv.h / .c)     │
-│  レジスタ R/W、ISR、DMA             │
-│  ✗ ビジネスロジック禁止  ✗ バッファ確保禁止 │
-│  → ISR はコールバック経由で通知       │
-├──────────────────────────────────────┤
-│  レジスタ層 (module_reg.h)          │
-│  構造体、ビット定義、ベースアドレスマクロ │
-│  ✗ 関数実装禁止  ✗ ビジネスコード禁止  │
-└──────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph App[アプリケーション層]
+        direction TB
+        AppH["module.h / module.c"]
+        AppD["バッファ管理 · プロトコル · 公開 API"]
+        AppR["✗ レジスタ直接書き込み禁止  ✗ ISR 禁止"]
+    end
+
+    subgraph Drv[ドライバ層]
+        direction TB
+        DrvH["module_drv.h / module_drv.c"]
+        DrvD["レジスタ R/W · ISR 処理 · DMA 転送"]
+        DrvR["✗ ビジネスロジック禁止  ✗ バッファ確保禁止"]
+    end
+
+    subgraph Reg[レジスタ層]
+        direction TB
+        RegH["module_reg.h"]
+        RegD["レジスタ構造体 · ビット定義 · ベース"]
+        RegR["✗ 関数実装なし  ✗ ビジネスコードなし"]
+    end
+
+    App -->|"ISR はコールバックで通知"| Drv
+    Drv -->|"構造体経由でアクセス"| Reg
 ```
 
 五ファイル構成：`module_reg.h` → `module_drv.h/.c` → `module.h/.c`
@@ -48,13 +58,13 @@ REWRITE/REVIEW は三層アーキテクチャに従う必要があります：
 
 ```bash
 # REWRITE: UART ドライバを整理、レジスタ書き込み順序を保持
-/ecs この UART ドライバを三層に整理する
+/embedded-code-skill この UART ドライバを三層に整理する
 
 # REVIEW: DMA ISR リスクを監査
-/ecs この DMA ISR の競合やキャッシュ問題を監査する
+/embedded-code-skill この DMA ISR の競合やキャッシュ問題を監査する
 
 # GUIDE: RTOS タスク設計
-/ecs FreeRTOS タスク優先度とスタックサイズを設計する
+/embedded-code-skill FreeRTOS タスク優先度とスタックサイズを設計する
 ```
 
 ---
