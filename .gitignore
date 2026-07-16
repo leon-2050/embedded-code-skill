@@ -1,0 +1,14 @@
+# macOS
+.DS_Store
+Icon?
+
+# Editor
+*.swp
+*.swo
+*~
+
+# Backup files
+*.bak
+
+# OS generated
+Thumbs.db
