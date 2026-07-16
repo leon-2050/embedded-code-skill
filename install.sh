@@ -9,9 +9,6 @@ REPO_URL="https://raw.githubusercontent.com/leon-2050/embedded-code-skill/main"
 CONNECT_TIMEOUT=10
 MAX_TIME=30
 
-# 校验和（SHA-256，下载后验证）
-EXPECTED_HASH=""
-
 case "${TARGET}" in
   codex)
     SKILL_DIR="${HOME}/.codex/skills/embedded-code-skill"
@@ -32,12 +29,6 @@ case "${TARGET}" in
 esac
 
 echo "Installing embedded-code-skill to ${SKILL_DIR}..."
-
-# 验证目标参数非空
-if [[ -z "${TARGET}" ]]; then
-    echo "Error: TARGET cannot be empty" >&2
-    exit 1
-fi
 
 # 创建临时目录，函数返回时清理
 cleanup() {
@@ -62,17 +53,7 @@ if [[ ! -s "${DEST_FILE}" ]]; then
     exit 1
 fi
 
-# 可选：校验文件完整性（如果设置了 EXPECTED_HASH）
-if [[ -n "${EXPECTED_HASH}" ]]; then
-    ACTUAL_HASH=$(shasum -a 256 "${DEST_FILE}" | cut -d' ' -f1)
-    if [[ "${ACTUAL_HASH}" != "${EXPECTED_HASH}" ]]; then
-        echo "Error: File integrity check failed (hash mismatch)" >&2
-        exit 1
-    fi
-fi
-
-# 创建目标目录（已存在则不报错）
-mkdir -p "$(dirname "${SKILL_DIR}")"
+# 创建目标目录
 mkdir -p "${SKILL_DIR}"
 
 # 备份现有文件
@@ -87,5 +68,5 @@ echo "Done! Installed to ${SKILL_DIR}/SKILL.md"
 echo ""
 echo "Work modes: REWRITE (clean up legacy code) | REVIEW (risk findings)"
 echo "Examples:"
-echo "  /ecs rewrite this UART driver, keep register write order"
-echo "  /ecs review this DMA ISR for race, volatile, or cache issues"
+echo "  /embedded-code-skill rewrite this UART driver, keep register write order"
+echo "  /embedded-code-skill review this DMA ISR for race, volatile, or cache issues"
