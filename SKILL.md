@@ -1,4 +1,4 @@
----
+﻿---
 version: 1.0.0
 name: embedded-code-skill
 description: "嵌入式 C 代码规范化助手：驱动骨架、旧代码整理、代码审查、寄存器重构"
@@ -54,6 +54,10 @@ triggers:
 3. 项目规范优先；CMSIS/厂商结构体直接复用，不为 fallback 再包一层
 4. 硬件信息缺口先列出；待定值标 placeholder
 5. 输出优先 patch；风格让位于 correctness/并发/硬件风险
+6. **平铺项目实现三层分离**：提取 `include/module_reg.h`，目录保持平铺不拆 `module/`：
+   - `module_reg.h`：结构体、位定义、基址宏（纯定义，无函数）
+   - `module.h` 删掉上述内容，改为 `#include "module_reg.h"` + 保留测试常量 + 函数原型
+   现有 `#include "module.h"` 链式包含，零改动到任何 build 脚本、Makefile、include 路径。三层隔离到位，同时不破坏项目的目录布局。
 
 ### 1.3 前置信息
 
@@ -98,9 +102,15 @@ triggers:
 | 常量/宏 | `SCREAMING_SNAKE` | `UART_SR_RX_READY_MASK` |
 | 指针 | 项目无约定时用清晰语义名 | `rx_buffer`, `handle`；或 `p_rx_buffer` |
 
+> **命名优先级**：
+> - 对外函数（被 `main.c` 或其他模块调用的）→ 保 API 不重命名 → 优先 §1.4
+> - `static`/内部函数 → 可改 `camelCase` → 优先 §2.1
+> - 已改的不回退（改动已验证，大面积的破坏已经不存在）
+
 ### 2.2 类型与错误处理
 
 - 公共接口优先使用 `<stdint.h>`、`<stdbool.h>`、`<stddef.h>`；默认 `uint8_t` / `uint16_t` / `uint32_t`、`int32_t`、`bool`
+> **`uint32_t` 的 `-Wformat` 警告**：`datatype.h` 把 `uint32_t` 定义为 `unsigned long`，所以 `%x` 报警。建议不修——输出正确，警告与硬件平台绑定（rv32 上 `unsigned long` 和 `unsigned int` 同宽），后续换芯片未必复现。如需消除可加 `(unsigned int)` 强转，零逻辑变化。
 - 不把 `int`、`char`、`long` 作为默认跨平台接口类型
 - **指针参数的 `const` 契约**：输入型指针（函数只读不写）必须加 `const`；输出型指针不加。这是 API 自文档化的关键手段：
   ```c
@@ -137,7 +147,7 @@ typedef enum {
 
 ### 2.3.1 结构体模式
 
-默认拆成配置、运行时句柄和状态：
+默认拆成配置、驱动层句柄和应用层句柄（与 §4.3 表一致）：
 
 ```c
 typedef struct {
@@ -149,9 +159,9 @@ typedef struct {
     bool            initialized;
     volatile bool   tx_busy;
     uint8_t        *rx_buffer;
-    uint16_t        rx_head;
-    uint16_t        rx_tail;
-    uart_config_t   config;
+    volatile uint16_t   rx_head;    /* ISR 写入位置，主循环读取 */
+    volatile uint16_t   rx_tail;    /* 主循环写入位置，ISR 读取 */
+    uart_config_t       config;
 } uart_handle_t;
 
 typedef enum {
@@ -208,7 +218,7 @@ embedded_code_status_t uartDrvInit(uart_drv_handle_t *p_handle, const uart_confi
     /* Step 5: 使能外设，标记初始化完成 */
     UART_REG->ctrl.CTRL |= UART_CTRL_ENABLE_MASK;
     p_handle->initialized = true;
-    return EmbedCode_Ok;
+    return EmbedCode_OK;
 }
 ```
 
@@ -252,7 +262,7 @@ embedded_code_status_t uartInit(uart_handle_t *handle, uint32_t baud)
     UART1_REG->BAUD = calcBaudDivider(baud);
 
     /* Step 4: 等待波特率发生器稳定（≥2 个 PCLK 周期） */
-    for (volatile int i = 0; i < 100; i++) { __NOP(); }
+    for (volatile uint32_t i = 0U; i < UART_BAUD_SETTLE_CYCLES; i++) { __NOP(); }
 
     /* Step 5: 使能外设，标记初始化完成 */
     UART1_REG->CTRL |= UART_CTRL_EN_MASK;
@@ -287,7 +297,7 @@ while (!(UART_REG->status.STATUS & UART_STATUS_TX_EMPTY) && --timeout) {
 ```c
 typedef struct {
     uint8_t *rx_buffer;     /* 应用层分配，驱动层不管理生命周期 */
-    uint16_t rx_head;       /* ISR 写入位置，主循环只读 */
+    volatile uint16_t rx_head;       /* ISR 写入位置，主循环只读 */
     volatile bool tx_busy;  /* ISR 在发送完成时清零 */
 } uart_handle_t;
 ```
@@ -680,6 +690,8 @@ UART1_REG->DATA = tx_byte;
 
 模板仅示组织方式；offset/reset/errata 须来自目标资料。三层五文件：reg（纯定义）→ drv（寄存器/ISR/DMA）→ app（缓冲/协议/API）。
 
+> **`module/` 子目录为示范性组织方式，非编译硬约束**。项目平铺时不建 `module/` 子目录，直接 `include/module_reg.h` 平铺。头文件能被编译器找到、与 `module.h` 链式包含即可。如果将来整个项目重构成带子目录的，那是另一个层面的重构工作。
+
 ### 4.1 统一结构
 
 ```text
@@ -797,29 +809,59 @@ MEMORY 中 FLASH 放 `.text`/`.rodata`，RAM 放 `.data`/`.bss`；`__data_start/
 
 ### 9.1 回查清单
 
-- [ ] 仓库已有代码符合本规范则沿用，不符合则在不改变逻辑的前提下修改
-- [ ] 驱动层与应用层分层清晰：应用层不直写寄存器，驱动层不含业务逻辑，ISR 通过回调通知应用层
-- [ ] 硬件常量来自用户、仓库或 placeholder
-- [ ] 不编造寄存器/IRQ/barrier/cache 规则
-- [ ] 驱动层与应用层分层清晰：应用层不直写寄存器，驱动层不含业务逻辑，必须符合强解耦标准
-- [ ] 每个外设寄存器块均已定义为 `*_reg_t` 结构体（非散落 `#define` 地址宏）
-- [ ] reserved 区域已用 `RESERVED[n]` 占位，只读寄存器已加 `const`
-- [ ] 复用 vendor/CMSIS 结构（若项目已有）
-- [ ] 无裸寄存器地址散落在业务逻辑，所有寄存器访问通过结构体成员
-- [ ] 无冗余/传递依赖的 `#include`，include 顺序符合规范
-- [ ] 无裸魔术数字（除 0/1 外所有字面量已命名），常量定义位置正确
-- [ ] 宏定义安全：参数括号化、多语句 `do-while(0)`、无副作用参数
-- [ ] 无默认动态内存和 VLA
-- [ ] 命名/类型/错误处理符合本 skill 规范；关联常量使用枚举而非 `#define`
-- [ ] 每个 `.c` / `.h` 有文件头注释，含 `@brief` / `@author` / `@date`
-- [ ] 硬件相关枚举值已显式赋值，switch(enum) 含 default 分支
-- [ ] REWRITE 保留行为/ABI/时序顺序
-- [ ] REVIEW correctness 和硬件风险优先于风格
-- [ ] 内部函数和模块私有变量均已加 `static`，公共 API 无 `static`
-- [ ] ISR 无阻塞，RTOS 用 FromISR API
-- [ ] 驱动层和应用层函数体内有编号步骤注释（Step 1 / Step 2 / ...）标注关键操作顺序
-- [ ] DMA buffer 处理 cache coherency
-- [ ] 共享变量正确使用 volatile/atomic/互斥量
+> **执行规则**：
+> - REWRITE：输出代码前，逐条过 P0 → P1 → P2，全部通过才输出。
+> - REVIEW：按 P0 → P1 → P2 顺序检查，发现 P0 立即报告，不必等 P1/P2 完成。
+> - GUIDE：不执行本清单。
+> - 每条检查项标注对应规则章节，便于溯源。
+
+---
+
+#### P0 — 违反 = 硬件损坏 / 数据丢失 / 编译失败（对应 §1.5 RED LINES）
+
+| # | 检查项 | 判定标准 | 规则来源 |
+|---|--------|----------|----------|
+| P0-1 | 不编造硬件事实 | 所有寄存器地址/位域/IRQ 号/barrier 指令/cache 操作/DMA 通道，均来自用户输入、仓库代码或标注 `USER_PROVIDED`/`PLACEHOLDER` | §1.5-①, §3 |
+| P0-2 | 寄存器写入顺序正确 | REWRITE 保留原始初始化序列顺序；有时序依赖的写入顺序未被打乱 | §1.5-②, §3.4 |
+| P0-3 | ISR 与主循环共享变量有 `volatile` | 所有被 ISR 写+主循环读（或反向）的变量声明处有 `volatile` | §1.5-③, §3.3 |
+| P0-4 | ISR 无阻塞调用 | ISR 内无 delay/malloc/mutex/printf；RTOS API 仅用 `xxxFromISR()` 变体 | §1.5-④, §6 |
+| P0-5 | 输出可编译 | 类型名/枚举值/宏名拼写一致；宏展开后语法正确；函数签名与声明匹配 | §1.5-⑤ |
+| P0-6 | 无裸寄存器地址 | 业务代码中无 `*(volatile uint32_t *)0x400xxxxx`；所有寄存器访问通过 `*_reg_t` 结构体成员 | §1.5-⑥, §3.1 |
+| P0-7 | 禁 malloc/VLA | 驱动层和 ISR 中无 `malloc`/`calloc`/`realloc`/`free`；无 VLA | §1.5-⑦, §8 |
+
+---
+
+#### P1 — 违反 = 并发 bug / 可移植性问题 / 架构腐化
+
+| # | 检查项 | 判定标准 | 规则来源 |
+|---|--------|----------|----------|
+| P1-1 | 三层解耦 | 应用层（`module.h/.c`）不直写寄存器；驱动层（`module_drv.h/.c`）不含业务逻辑；寄存器定义在 `module_reg.h` | §4.1, §4.2 |
+| P1-2 | 寄存器结构体完整 | 每个外设寄存器块有 `*_reg_t` 结构体；`reserved` 区域占位；只读寄存器标 `const volatile` | §3.1, §3.3 |
+| P1-3 | MASK/SHIFT 宏配对 | 每个可写位域有 `_MASK` 和 `_SHIFT` 两个宏；无 C 位域用于寄存器定义 | §3.2, §3.3 |
+| P1-4 | 宏定义安全 | 所有宏参数加括号；多语句宏用 `do { } while(0)`；无 `##` 拼接歧义 | §2.9 |
+| P1-5 | DMA cache 一致性 | DMA 写完后 CPU 读之前有 cache 失效；CPU 写完后 DMA 读之前有 cache 回写；DMA buffer 对齐 | §8 |
+| P1-6 | 中断优先级已配置 | 多中断场景下 Init 函数中有优先级配置，不依赖复位默认值 | §5.1 |
+| P1-7 | 公共接口类型安全 | 公共 API 参数和返回值无裸 `int`/`char`/`long`；使用 `uint32_t`/`int32_t`/`bool`/`size_t` | §2.2 |
+| P1-8 | static 使用正确 | 内部函数和模块私有变量有 `static`；公共 API 无 `static`；多实例函数无 `static` 局部变量存实例状态 | §2.7 |
+| P1-9 | 错误处理完整 | 所有公共 API 返回 `embedded_code_status_t`；调用处检查返回值；错误路径有资源清理 | §2.2, §2.4 |
+| P1-10 | 无裸魔术数字 | 除 0/1 外所有字面量已提取为命名常量；常量定义位置正确 | §2.8 |
+
+---
+
+#### P2 — 违反 = 风格不一致 / 文档缺失（项目有约定时从项目）
+
+| # | 检查项 | 判定标准 | 规则来源 |
+|---|--------|----------|----------|
+| P2-1 | 函数命名 | 全部 `camelCase`（或项目约定的 `snake_case`），无混用 | §2.1 |
+| P2-2 | 宏命名 | 全部 `UPPER_SNAKE_CASE`，无小写宏 | §2.1 |
+| P2-3 | 类型命名 | 结构体/枚举 `xxx_t` 后缀；枚举值 `MODULE_STATE_XXX` 格式 | §2.1 |
+| P2-4 | 变量命名 | 局部变量 `snake_case`；无单字母变量名（`i`/`j`/`k` 循环计数器除外） | §2.1 |
+| P2-5 | 文件头注释 | 每个 `.c`/`.h` 有 `@brief`/`@author`/`@date` | §2.6 |
+| P2-6 | include 规范 | 顺序：系统头 → CMSIS/厂商头 → 项目头；无冗余 include；include guard `MODULE_H` | §2.5 |
+| P2-7 | Step 注释 | 驱动层和应用层函数体内有 `/* Step N: ... */` 编号注释 | §2.4 |
+| P2-8 | 枚举值显式赋值 | 硬件相关枚举值已显式赋值；switch(enum) 覆盖所有值（是否加 default 视项目 MISRA 要求） | §2.2 |
+| P2-9 | 复用已有结构 | 若项目已有 vendor/CMSIS 寄存器结构体，不重复定义 | §3.1 |
+| P2-10 | extern "C" 保护 | 公共 `.h` 有 `#ifdef __cplusplus` / `extern "C"` 包裹 | §2.5 |
 
 ### 9.2 维护自检
 
