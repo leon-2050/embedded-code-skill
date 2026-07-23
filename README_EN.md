@@ -3,79 +3,108 @@
 **Embedded C Code Assistant**: Helps AI produce conservative, reviewable code in embedded scenarios.
 
 | Resource | Description |
-|----------|-------------|
-| [SKILL.md](SKILL.md) | Single rule entrypoint |
-| [install.sh](install.sh) | Install script |
+| -------- | ----------- |
+| [SKILL.md](SKILL.md) | Complete rule specification |
 
 ---
 
 ## What It Does
 
-- **REWRITE**: Clean up legacy drivers, preserve register write order and timing
-- **REVIEW**: Audit ISR/DMA/cache/race risks, output issue table
-- **GUIDE**: RTOS task design, CMake config, debug strategy advisory
+- **REWRITE**: Clean up legacy drivers, preserve register write order and timing; standardize naming and file organization per three-layer architecture
+- **REVIEW**: Audit ISR/DMA/cache/race risks, output issue table prioritized by P0/P1/P2 severity
+- **GUIDE**: RTOS task design, CMake config, debug strategy advisory (no REVIEW table required)
 
-**Not a chip manual**. Does not replace register maps, IRQ tables, or certification artifacts.
+**Not a chip manual.** Register offsets, bit definitions, IRQs, barriers, cache/DMA, and timing must come from datasheets, vendor headers, or the repository — never fabricated.
 
 ---
 
 ## Core Principle: Three-Layer Decoupling
 
-REWRITE/REVIEW must follow the three-layer architecture:
+```mermaid
+flowchart TB
+    subgraph APP["Application  module.h / module.c"]
+        direction TB
+        A1["Buffers, protocol parsing, public API"]
+        A_ban["✗ No direct register writes  ✗ No ISR"]
+    end
 
-```
-┌──────────────────────────────────────┐
-│  Application (module.h / module.c)   │
-│  Buffers, protocol, public API      │
-│  ✗ No direct register writes  ✗ No ISR │
-├──────────────────────────────────────┤
-│  Driver (module_drv.h / .c)         │
-│  Register R/W, ISR, DMA            │
-│  ✗ No business logic  ✗ No buffer alloc │
-│  → ISR notifies app via callbacks   │
-├──────────────────────────────────────┤
-│  Register (module_reg.h)            │
-│  Structs, bit defs, base macros    │
-│  ✗ No function implementations     │
-└──────────────────────────────────────┘
+    subgraph DRV["Driver  module_drv.h / module_drv.c"]
+        direction TB
+        D1["Register R/W, ISR, DMA"]
+        D2["ISR notifies app via callback"]
+        D_ban["✗ No business logic  ✗ No buffer allocation"]
+    end
+
+    subgraph REG["Register  module_reg.h"]
+        direction TB
+        R1["*_reg_t struct (volatile uint32_t)"]
+        R2["Bit-field MASK/SHIFT macros"]
+        R3["Base addr / REG entry macros (no .c)"]
+        R_ban["✗ No function impl  ✗ No business code"]
+    end
+
+    HW["Hardware (MCU peripheral registers)<br/>memory-mapped, outside code"]
+
+    APP -->|call| DRV
+    DRV -.->|callback notification| APP
+    DRV -->|type-safe register access| REG
+    REG ----> HW
+
+    style APP fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
+    style DRV fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
+    style REG fill:#fff3e0,stroke:#e65100,color:#bf360c
+    style HW fill:#f5f5f5,stroke:#616161,color:#424242,stroke-dasharray: 5 5
 ```
 
-Five-file layout: `module_reg.h` → `module_drv.h/.c` → `module.h/.c`
+**File layout**: Five files per peripheral — `module_reg.h` + `module_drv.h/.c` + `module.h/.c`.
+Flat projects: place five files directly in the current directory (no `module/` subdirectory). Projects using a `module/` subdirectory have the same layout, just nested one level deeper.
+
+---
+
+## Priority Arbitration
+
+When rules conflict, apply from highest to lowest:
+
+| Priority | Scope | Yield Rule |
+| -------- | ----- | ---------- |
+| P0 Safety Redlines | Fabricated hardware / write order / volatile / ISR blocking / compilability / bare registers / malloc | Never yields to project conventions |
+| P1 Concurrency & Portability | Static multi-instance, type safety, error handling, macro safety | Never yields |
+| P1 Structure | Three-layer split granularity, file organization | Yields when project has established architecture |
+| P2 Style | Naming / comments / include order / file headers | Always yields to project conventions |
+
+---
+
+## RED LINES (P0 Safety — never yields to any project convention)
+
+1. **No fabricated hardware facts** (registers/bit-fields/IRQs/barriers/timing/cache/DMA channels)
+2. **No reordering** of register write sequences or timing sequences (REWRITE must preserve as-is)
+3. **No missing `volatile`** on variables shared between ISR and main loop
+4. **No blocking calls in ISR** (delay/malloc/mutex/printf; RTOS: ISR-safe APIs only)
+5. **No non-compilable output** (consistent type names, macro names, signatures; correct syntax)
+6. **No bare register addresses** in business logic (must access via register struct members)
+7. **No `malloc`/VLA** in driver layer or ISR
 
 ---
 
 ## Quick Start
 
 ```bash
-# REWRITE: Clean up UART driver, preserve register write order
-/ecs Clean up this UART driver into three layers
+# REWRITE: Clean up UART driver into three layers
+/embedded-code-skill Clean up this UART driver into three layers
 
 # REVIEW: Audit DMA ISR risks
-/ecs Review this DMA ISR for race or cache issues
+/embedded-code-skill Review this DMA ISR for race or cache issues
 
 # GUIDE: RTOS task design
-/ecs Design FreeRTOS task priorities and stack sizes
+/embedded-code-skill Design FreeRTOS task priorities and stack sizes
 ```
-
----
-
-## RED LINES
-
-1. No invented hardware facts (registers/IRQ/barriers/timing)
-2. No `malloc` / VLAs in low-level code
-3. No `int`/`char`/`long` as default public interface types
-4. No bare register addresses in business logic
-5. No non-compilable output
-6. **No violation of three-layer decoupling**
 
 ---
 
 ## Install
 
 ```bash
-./install.sh          # ~/.codex/skills/embedded-code-skill/
-./install.sh cursor   # ~/.cursor/skills/embedded-code-skill/
-./install.sh claude   # ~/.claude/skills/embedded-code-skill/
+./install.sh          # ~/.claude/skills/embedded-code-skill/
 ```
 
 ---
@@ -83,17 +112,16 @@ Five-file layout: `module_reg.h` → `module_drv.h/.c` → `module.h/.c`
 ## Chapter Navigation
 
 | Chapter | Coverage |
-|---------|----------|
+| ------- | -------- |
 | §1 | Positioning, principles, work modes, RED LINES |
-| §2 | Coding standards (naming, types, error handling, data structures, comments) |
-| §3 | Register abstraction (hierarchical structs, `MASK/SHIFT`) |
-| §4 | Driver templates (three-layer five-file, interface specs) |
-| §5 | Architecture rules (Cortex-M/A, ESP32, RISC-V, etc.) |
-| §6 | RTOS guidance (FreeRTOS/Zephyr/RT-Thread) |
-| §7 | Build system (linker scripts, CMake) |
-| §8 | Test and debug |
-| §9 | Industry domains (aerospace/military/industrial/automotive) |
-| §10-12 | Memory and concurrency, anti-patterns, review checklist |
+| §2 | Fallback coding standards (naming, types, error handling, data structures, comments, enums, static, macro safety) |
+| §3 | Register abstraction (hierarchical structs, MASK/SHIFT, vendor struct reuse) |
+| §4 | Driver templates (three-layer five-file, flat layout, interface specs, key structures) |
+| §5 | Architecture rules (Cortex-M RISC-V barriers/interrupts/DMA cache coherency) |
+| §6 | RTOS guidance (FreeRTOS/Zephyr/RT-Thread ISR rules, deadlock prevention) |
+| §7 | Build system (linker scripts, startup, CMake templates) |
+| §8 | Memory, safety & concurrency (malloc ban, volatile, DMA cache, critical sections) |
+| §9 | Review checklist & maintenance self-check (P0→P1→P2 cascade) |
 
 See [SKILL.md](SKILL.md) for full specifications.
 

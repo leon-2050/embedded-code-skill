@@ -2,7 +2,7 @@
 version: 1.0.1
 name: embedded-code-skill
 description: "嵌入式 C 代码规范化助手：驱动骨架、旧代码整理、代码审查、寄存器重构"
-command: ecs
+command: embedded-code-skill
 user-invocable: true
 triggers:
   - embedded
