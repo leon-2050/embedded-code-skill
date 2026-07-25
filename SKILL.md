@@ -1,4 +1,4 @@
-﻿---
+---
 name: embedded-code-skill
 description: "嵌入式 C 代码规范化助手：驱动骨架、旧代码整理、代码审查、寄存器重构"
 user-invocable: true
@@ -57,7 +57,7 @@ triggers:
    - `module_ll.h/.c`：寄存器访问函数（无状态；barrier/回读/多步序列）
    - `module_drv.h/.c`：时序编排、ISR、DMA（经 ll 访问硬件）
    - `module.h` 删掉寄存器定义，改为 `#include "module_reg.h"` + 保留对外函数原型
-   目录布局不变，四层隔离标准不变（P1-1 对平铺与带子目录项目同等适用）。
+   目录布局不变，四层隔离标准不变（对平铺与带子目录项目同等适用）。
 
 **优先级裁决**（规则冲突时从高到低适用）：
 
@@ -89,7 +89,7 @@ triggers:
 
 ### 1.5 RED LINES
 
-安全类最高优先级，与 §9.1 P0-1~P0-7 一一对应，不让位于任何项目约定：
+安全类最高优先级，与 §9.1 P0 表一一对应，不让位于任何项目约定：
 
 - ① 禁伪造硬件参数（寄存器/位域/IRQ/屏障/时序）
 - ② 禁打乱寄存器写入顺序与时序序列（REWRITE 必须原样保留）
@@ -99,7 +99,7 @@ triggers:
 - ⑥ 禁业务代码裸寄存器地址
 - ⑦ 禁驱动层/ISR 使用 `malloc`/VLA
 
-> 接口类型安全（P1-7）与四层解耦（P1-1）为 P1 架构级要求，不列入红线。
+> 接口类型安全与四层解耦为 P1 架构级要求（见 §9.1 P1 表），不列入红线。
 
 ---
 
@@ -154,6 +154,7 @@ typedef enum {
 
 #define VALIDATE_INIT(handle) \
     do { if (!(handle) || !(handle)->initialized) return EMBED_CODE_ERR_NOT_INIT; } while (0)
+/* VALIDATE_INIT 仅适用于含 initialized 字段的句柄（如 drv 句柄，见 §2.3.1） */
 ```
 
 ### 2.3 数据结构
@@ -221,9 +222,10 @@ typedef struct {
 ```c
 embedded_code_status_t uartDrvInit(uart_drv_handle_t *p_handle, const uart_config_t *p_config)
 {
-    /* Step 1: 参数校验 */
+    /* Step 1: 参数校验（baud_rate 为 0 会在 calcBaudDivider 中除零） */
     VALIDATE_NOT_NULL(p_handle);
     VALIDATE_NOT_NULL(p_config);
+    if (p_config->baud_rate == 0U) { return EMBED_CODE_ERR_INVALID_ARG; }
 
     /* Step 2: 禁用 UART，避免配置过程中产生意外中断 */
     uartLlDisable(p_handle->regs);
@@ -266,13 +268,13 @@ extern "C" {
 
 /**
  * @brief  初始化 UART 外设并配置波特率
- * @param  handle    UART 驱动句柄指针
+ * @param  p_handle  UART 驱动句柄指针
  * @param  p_config  配置指针（波特率支持 9600 / 115200 / 921600）
  * @return EMBED_CODE_OK 成功；EMBED_CODE_ERR_NULL_PTR 指针为空；
  *         EMBED_CODE_ERR_INVALID_ARG 波特率不支持
  * @note   调用前需确保 GPIO 已配置为 AF 模式
  */
-embedded_code_status_t uartDrvInit(uart_drv_handle_t *handle, const uart_config_t *p_config);
+embedded_code_status_t uartDrvInit(uart_drv_handle_t *p_handle, const uart_config_t *p_config);
 
 #ifdef __cplusplus
 }
@@ -282,24 +284,25 @@ embedded_code_status_t uartDrvInit(uart_drv_handle_t *handle, const uart_config_
 
 /* ===== uart_drv.c ===== */
 /* （公共 API 不重复 Doxygen 注释，函数体内用 Step 注释标注关键步骤，见 2.4.2 节） */
-embedded_code_status_t uartDrvInit(uart_drv_handle_t *handle, const uart_config_t *p_config)
+embedded_code_status_t uartDrvInit(uart_drv_handle_t *p_handle, const uart_config_t *p_config)
 {
-    /* Step 1: 参数校验 */
-    VALIDATE_NOT_NULL(handle);
+    /* Step 1: 参数校验（baud_rate 为 0 会在 calcBaudDivider 中除零） */
+    VALIDATE_NOT_NULL(p_handle);
     VALIDATE_NOT_NULL(p_config);
+    if (p_config->baud_rate == 0U) { return EMBED_CODE_ERR_INVALID_ARG; }
 
     /* Step 2: 先关使能再配置，防止 FIFO 残留数据导致错位 */
-    UART1_REG->CTRL &= ~UART_CTRL_EN_MASK;
+    uartLlDisable(p_handle->regs);
 
     /* Step 3: 配置波特率 */
-    UART1_REG->BAUD = calcBaudDivider(p_config->baud_rate);
+    uartLlSetBaudDiv(p_handle->regs, calcBaudDivider(p_config->baud_rate));
 
     /* Step 4: 等待波特率发生器稳定（≥2 个 PCLK 周期） */
     for (volatile uint32_t i = 0U; i < UART_BAUD_SETTLE_CYCLES; i++) { __NOP(); }
 
     /* Step 5: 使能外设，标记初始化完成 */
-    UART1_REG->CTRL |= UART_CTRL_EN_MASK;
-    handle->initialized = true;
+    uartLlEnable(p_handle->regs);
+    p_handle->initialized = true;
     return EMBED_CODE_OK;
 }
 
@@ -310,7 +313,7 @@ embedded_code_status_t uartDrvInit(uart_drv_handle_t *handle, const uart_config_
  * @brief  计算波特率分频值
  * @param  target_baud 目标波特率
  * @return 分频寄存器写入值
- * @note   公式：DIV = PCLK / (UART_BAUD_OVERSAMPLING × target_baud)，PCLK 来自系统时钟配置
+ * @note   公式：DIV = PCLK / (UART_BAUD_OVERSAMPLING × target_baud)，PCLK 为 PLACEHOLDER，以项目时钟配置为准
  */
 static uint32_t calcBaudDivider(uint32_t target_baud)
 {
@@ -323,7 +326,7 @@ static uint32_t calcBaudDivider(uint32_t target_baud)
 ```c
 /* 等待发送完成，超时防止硬件死锁 */
 uint32_t timeout = UART_TX_TIMEOUT_MS;
-while (!(UART1_REG->STATUS & UART_STATUS_TX_EMPTY_MASK) && --timeout) {
+while (!(uartLlGetStatus(UART1_REG) & UART_STATUS_TX_EMPTY_MASK) && --timeout) {
 }
 ```
 
@@ -341,10 +344,11 @@ typedef struct {
 
 ```c
 typedef struct uart_reg_t {
-    volatile uint32_t CTRL;    /* 0x00 控制寄存器：bit[0]=EN, bit[2:1]=MODE, bit[4]=IE */
-    volatile uint32_t STATUS;  /* 0x04 状态寄存器：bit[0]=TX_EMPTY, bit[1]=RX_FULL, bit[3]=ERR */
-    const  uint32_t RESERVED0[2];
-    volatile uint32_t DATA;    /* 0x10 数据寄存器：写=TX FIFO，读=RX FIFO */
+    volatile uint32_t CTRL;          /* 0x00 控制寄存器：bit[0]=EN, bit[2:1]=MODE, bit[4]=IE */
+    const  uint32_t RESERVED0[3];    /* 0x04~0x0C 保留，禁止访问 */
+    const  volatile uint32_t STATUS; /* 0x10 状态寄存器：只读，bit[0]=TX_EMPTY, bit[1]=RX_FULL */
+    volatile uint32_t DATA;          /* 0x14 数据寄存器：写=TX FIFO，读=RX FIFO */
+    volatile uint32_t BAUD;          /* 0x18 波特率寄存器：BAUD = PCLK / (16 × target_rate) */
 } uart_reg_t;
 ```
 
@@ -396,13 +400,14 @@ typedef struct uart_reg_t {
 | `@depends` | 建议 | 建议 | 本文件直接依赖的头文件或模块，用于快速定位编译/链接依赖 |
 | `@note` | 实现方式、硬件依赖、运行限制 | 调用约束 | `.h` 写调用前提和限制；`.c` 写实现要点、裸机/RTOS 环境、ISR 约束，可多条 |
 
-**`@brief` 分层前缀**（必须三选一）：
+**`@brief` 分层前缀**（必须四选一）：
 
 | 前缀 | 适用文件 | 示例 |
 |------|---------|------|
 | `[Register]` | `*_reg.h` | `[Register] UART寄存器定义：控制、状态、数据寄存器` |
+| `[LowLevel]` | `*_ll.h` / `*_ll.c` | `[LowLevel] UART寄存器访问：使能、波特率配置、标志清除` |
 | `[Driver]` | `*_drv.h` / `*_drv.c` | `[Driver] SPI驱动层：初始化、传输、中断处理` |
-| `[Application]` | `*.h` / `*.c`（非 reg/drv） | `[Application] 串口协议解析：帧同步、超时管理` |
+| `[Application]` | `*.h` / `*.c`（非 reg/ll/drv） | `[Application] 串口协议解析：帧同步、超时管理` |
 
 ### 2.5 头文件包含规范
 
@@ -469,9 +474,9 @@ typedef struct {
 
 #endif /* UART_DRV_H */
 
-/* ===== uart_drv.c ===== */
-#include "uart_drv.h"
-#include "uart_reg.h"   /* 实现中访问寄存器成员，这里才需要完整定义 */
+/* ===== uart_ll.c ===== */
+#include "uart_ll.h"
+#include "uart_reg.h"   /* ll 访问寄存器成员，这里才需要完整定义 */
 ```
 
 **前置声明适用条件**：头文件仅将类型用作指针或引用（函数参数、结构体成员指针），不访问其成员、不计算 `sizeof`。
@@ -567,36 +572,41 @@ uart_state_t uartGetState(uart_handle_t *handle);
 | **DMA/回调函数** | **必须** `static` | `static void dmaTxComplete(void)` — 仅注册为回调 |
 | **文件级全局变量** | **必须** `static` | `static uart_handle_t g_uart1_handle` — 模块私有状态 |
 | **查找表 / 常量数据** | **必须** `static const` | `static const uint16_t baud_div_table[]` — 编译期只读 |
-| **函数内持久状态** | **建议** `static` 局部 | `static bool first_init_done = false` — 单次初始化标记；多实例函数禁止用 static 局部保存实例状态（见 P1-8） |
+| **函数内持久状态** | **建议** `static` 局部 | `static bool first_init_done = false` — 单次初始化标记；多实例函数禁止用 static 局部保存实例状态 |
 | **公共 API 函数** | **禁止**加 `static` | `.h` 中声明的接口函数 |
 | **公共全局变量** | **禁止**加 `static` | `.h` 中 `extern` 声明的 `g_xxx` |
 
 **ISR 两级模式**：向量表入口函数（如 `UART_IRQHandler`）加 `static`，仅被向量表引用；驱动层公共中断处理函数 `xxxDrvIRQHandler`（见 §4.2）**不加** `static`——入口函数调用它，应用层也可手动触发。
 
-#### 2.7.3 三层架构中的 static 应用
+#### 2.7.3 四层架构中的 static 应用
 
-结合第 4 节三层五文件架构，`static` 的分布如下：
+结合第 4 节四层七文件架构，`static` 的分布如下：
 
 ```c
 /* ===== module_reg.h ===== */
 /* 无函数，不含 static */
 
+/* ===== module_ll.h ===== */
+/* 寄存器访问函数声明（公共，不加 static；单步访问可 static inline 放头文件） */
+void uartLlEnable(uart_reg_t *regs);
+uint32_t uartLlGetStatus(const uart_reg_t *regs);
+
+/* ===== module_ll.c ===== */
+static void waitFifoDrain(uart_reg_t *regs);  /* static：ll 内部多步序列 helper */
+
 /* ===== module_drv.h ===== */
 /* 仅声明公共 API，不加 static */
 embedded_code_status_t uartDrvInit(uart_drv_handle_t *h, const uart_config_t *p_config);
 embedded_code_status_t uartDrvSendByte(uint8_t byte);
-void uartDrvIRQHandler(void);    /* 公共：应用层可能需手动触发中断处理（ISR 处理函数无返回值，P1-9 例外） */
+void uartDrvIRQHandler(void);    /* 公共：应用层可能需手动触发中断处理（ISR 处理函数无返回值，为错误码规则的有意例外） */
 
 /* ===== module_drv.c ===== */
-static uint32_t readStatus(void);       /* static：内部寄存器读取 */
-static void writeCtrl(uint32_t val);    /* static：内部寄存器写入 */
-static void clearFlags(uint32_t mask);  /* static：内部标志清除 */
 static void txIsrCallback(void);        /* static：仅 ISR 内调用 */
 
 static uart_drv_handle_t g_uart1_drv;   /* static：模块私有驱动句柄 */
 static volatile bool g_tx_done;         /* static：模块私有传输标志 */
 
-/* （公共 API 实现，不加 static） */
+/* （公共 API 实现，不加 static；寄存器访问一律经 module_ll.h 函数） */
 embedded_code_status_t uartDrvInit(uart_drv_handle_t *h, const uart_config_t *p_config) { /* ... */ }
 
 /* ===== module.h ===== */
@@ -623,7 +633,7 @@ static uint8_t g_rx_ring_buf[256];       /* static：模块私有缓冲区 */
 | `0` | `memset(buf, 0, len)`, `flag = 0` | 清零/初始化语义自明 |
 | `1` | `for (i = 1; i < n; i++)`, `addr + 1` | 循环步进、相邻地址等自明场景 |
 | `0`/`1` 在寄存器位操作中 | `(1U << 3)` | 移位量允许直接写，但掩码本身必须命名 |
-| 常量定义语句内部 | `#define UART_CTRL_MODE_MASK (3U << 2)` 中的 `3U`、`2` | 定义语句内的字面量即命名行为本身，豁免 |
+| 常量定义语句内部 | `#define UART_CTRL_MODE_MASK (3U << 1)` 中的 `3U`、`1` | 定义语句内的字面量即命名行为本身，豁免 |
 
 其余所有字面量——寄存器复位值、超时毫秒数、数组大小、波特率分频系数、协议命令码——都必须命名。
 
@@ -717,8 +727,8 @@ typedef struct uart_reg_t {
 /* ===== 位定义宏 — CTRL 寄存器 ===== */
 #define UART_CTRL_EN_MASK     (1U << 0)
 #define UART_CTRL_EN_SHIFT    (0U)
-#define UART_CTRL_MODE_MASK   (3U << 2)
-#define UART_CTRL_MODE_SHIFT  (2U)
+#define UART_CTRL_MODE_MASK   (3U << 1)
+#define UART_CTRL_MODE_SHIFT  (1U)
 #define UART_CTRL_IE_MASK     (1U << 4)
 #define UART_CTRL_IE_SHIFT    (4U)
 
@@ -738,13 +748,13 @@ typedef struct uart_reg_t {
 4. **读写寄存器**声明为 `volatile uint32_t`。
 5. **写-only 寄存器**声明为 `volatile uint32_t`（C 语言无 write-only 限定符，靠注释说明）。
 6. **多字节访问**的寄存器组（如 64-bit timer counter）使用连续两个 `uint32_t` 成员，注释标注 low/high。
-7. 若同一地址存在**读/写含义不同**的寄存器对（如读=FIFO 数据，写=TX 数据），使用两个成员 `DATA_RD` 和 `DATA_WR` 并注释说明实际为同一地址。
+7. 若同一地址存在**读/写含义不同**的寄存器（如读=FIFO 数据，写=TX 数据），使用**单个成员**并注释说明读写语义（如 §3.2 的 `DATA`）；禁止用两个成员表示同一地址（结构体成员必占不同偏移），确需区分命名时使用 `union`。
 8. **禁止 C 位域（bit-field）用于寄存器定义**：`struct { uint32_t enable : 1; }` 的位域布局（起始位、填充方向、跨字节行为）是编译器实现定义的，不可移植。硬件寄存器一律用 `MASK/SHIFT` 宏。
 
 ### 3.4 寄存器使用方式
 
 ```c
-/* ✅ 正确：通过结构体访问 */
+/* ✅ 正确：通过结构体访问（仅访问层 _ll.h/.c 内允许，见 §4.1） */
 UART1_REG->CTRL |= UART_CTRL_EN_MASK;
 uint32_t status = UART1_REG->STATUS;
 UART1_REG->DATA = tx_byte;
@@ -873,7 +883,7 @@ MEMORY 中 FLASH 放 `.text`/`.rodata`，RAM 放 `.data`/`.bss`；`__data_start/
 
 | 用途 | 写法 |
 |------|------|
-| 中断函数 | `__attribute__((interrupt("IRQ")))` |
+| 中断函数 | 以目标工具链文档为准（RISC-V 用 `__attribute__((interrupt))`；ARM 经向量表注册，无此 attribute） |
 | 指定 section | `__attribute__((section(".dma_buf")))` |
 | 对齐 | `__attribute__((aligned(32)))` |
 | 弱符号 | `__attribute__((weak))` |
@@ -926,7 +936,7 @@ MEMORY 中 FLASH 放 `.text`/`.rodata`，RAM 放 `.data`/`.bss`；`__data_start/
 
 | # | 检查项 | 判定标准 | 规则来源 |
 |---|--------|----------|----------|
-| P1-1 | 四层解耦 | 应用层不直写寄存器、不含 ISR；驱动层不含业务逻辑、不直触寄存器结构体（经 `_ll.h` 访问函数）；访问层（`_ll.h/.c`）无状态、无时序逻辑；寄存器定义在 `module_reg.h` | §4.1, §4.2 |
+| P1-1 | 四层解耦 | 应用层不直写寄存器、不含 ISR；驱动层不含业务逻辑、不直触寄存器结构体（经 `_ll.h` 访问函数）；访问层（`_ll.h/.c`）无状态、无时序逻辑，barrier/回读/多步序列只出现在访问层；寄存器定义在 `module_reg.h` | §4.1, §4.2 |
 | P1-2 | 寄存器结构体完整 | 每个外设寄存器块有 `*_reg_t` 结构体；`reserved` 区域占位；只读寄存器标 `const volatile` | §3.1, §3.3 |
 | P1-3 | MASK/SHIFT 宏配对 | 每个可写位域有 `_MASK` 和 `_SHIFT` 两个宏；无 C 位域用于寄存器定义 | §3.2, §3.3 |
 | P1-4 | 宏定义安全 | 所有宏参数加括号；多语句宏用 `do { } while(0)`；无 `##` 拼接歧义 | §2.9 |

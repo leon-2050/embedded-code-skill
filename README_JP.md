@@ -10,7 +10,7 @@
 
 ## 何をするか
 
-- **REWRITE**: レガシードライバを整理、レジスタ書き込み順序とタイミングを保持、三層アーキテクチャに準拠した命名とファイル構成に標準化
+- **REWRITE**: レガシードライバを整理、レジスタ書き込み順序とタイミングを保持、四層アーキテクチャに準拠した命名とファイル構成に標準化
 - **REVIEW**: ISR/DMA/cache/競合リスクを監査、P0/P1/P2 優先度で問題表を出力
 - **GUIDE**: RTOS タスク設計、CMake 設定、デバッグ戦略のコンサルティング（REVIEW 表は不要）
 
@@ -18,7 +18,7 @@
 
 ---
 
-## コア原則：三層分離
+## コア原則：四層分離
 
 ```mermaid
 flowchart TB
@@ -30,9 +30,15 @@ flowchart TB
 
     subgraph DRV["ドライバ層  module_drv.h / module_drv.c"]
         direction TB
-        D1["レジスタ R/W、ISR、DMA"]
+        D1["シーケンス、ISR、DMA（ll 経由でアクセス）"]
         D2["ISR はコールバックで通知"]
-        D_ban["✗ ビジネスロジック禁止  ✗ バッファ確保禁止"]
+        D_ban["✗ ビジネスロジック禁止  ✗ 構造体直接アクセス禁止"]
+    end
+
+    subgraph LL["アクセス層  module_ll.h / module_ll.c"]
+        direction TB
+        L1["レジスタアクセサ、多ステップ列、barrier/読み戻し"]
+        L_ban["✗ ステートレス  ✗ シーケンスロジック禁止"]
     end
 
     subgraph REG["レジスタ層  module_reg.h"]
@@ -47,17 +53,19 @@ flowchart TB
 
     APP -->|呼び出し| DRV
     DRV -.->|コールバック通知| APP
-    DRV -->|型安全レジスタアクセス| REG
+    DRV -->|アクセサ呼び出し| LL
+    LL -->|型安全レジスタアクセス| REG
     REG ----> HW
 
     style APP fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
     style DRV fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
+    style LL fill:#fce4ec,stroke:#ad1457,color:#880e4f
     style REG fill:#fff3e0,stroke:#e65100,color:#bf360c
     style HW fill:#f5f5f5,stroke:#616161,color:#424242,stroke-dasharray: 5 5
 ```
 
-**ファイル構成**: ペリフェラル毎に五ファイル — `module_reg.h` + `module_drv.h/.c` + `module.h/.c`。
-フラットプロジェクト: 五ファイルをカレントディレクトリに直接配置（`module/` サブディレクトリ不要）。`module/` ディレクトリ使用時も同じ五ファイル構成、ネストが一段深くなるのみ。
+**ファイル構成**: ペリフェラル毎に七ファイル — `module_reg.h` + `module_ll.h/.c` + `module_drv.h/.c` + `module.h/.c`。
+フラットプロジェクト: 七ファイルをカレントディレクトリに直接配置（`module/` サブディレクトリ不要）。`module/` ディレクトリ使用時も同じ七ファイル構成、ネストが一段深くなるのみ。
 
 ---
 
@@ -69,7 +77,7 @@ flowchart TB
 | ------ | ---- | ---------- |
 | P0 安全レッドライン | ハードウェア捏造/書き込み順序/volatile/ISR ブロッキング/コンパイル可能性/ベアレジスタ/malloc | いかなるプロジェクト規約にも譲らない |
 | P1 並行性と移植性 | static マルチインスタンス、型安全性、エラー処理、マクロ安全性 | 譲らない |
-| P1 構造 | 三層分割粒度、ファイル構成 | プロジェクトに既存アーキテクチャがある場合は譲る |
+| P1 構造 | 四層分割粒度、ファイル構成 | プロジェクトに既存アーキテクチャがある場合は譲る |
 | P2 スタイル | 命名/コメント/include 順序/ファイルヘッダ | 常にプロジェクト規約に譲る |
 
 ---
@@ -89,8 +97,8 @@ flowchart TB
 ## Quick Start
 
 ```bash
-# REWRITE: UART ドライバを三層に整理
-/embedded-code-skill この UART ドライバを三層に整理する
+# REWRITE: UART ドライバを四層に整理
+/embedded-code-skill この UART ドライバを四層に整理する
 
 # REVIEW: DMA ISR リスクを監査
 /embedded-code-skill この DMA ISR の競合やキャッシュ問題を監査する
@@ -116,7 +124,7 @@ flowchart TB
 | §1 | 定位、使用原則、作業モード、RED LINES |
 | §2 | Fallback コーディング規範（命名、型、エラー処理、データ構造、コメント、enum、static、マクロ安全性） |
 | §3 | レジスタ抽象化（階層的構造体、MASK/SHIFT、ベンダ構造体再利用） |
-| §4 | ドライバテンプレート（三層五ファイル、フラットレイアウト、インターフェース仕様、主要構造） |
+| §4 | ドライバテンプレート（四層七ファイル、フラットレイアウト、インターフェース仕様、主要構造） |
 | §5 | アーキテクチャ規則（Cortex-M RISC-V バリア/割り込み/DMA cache コヒーレンシー） |
 | §6 | RTOS ガイダンス（FreeRTOS/Zephyr/RT-Thread ISR ルール、デッドロック予防） |
 | §7 | ビルドシステム（リンカスクリプト、スタートアップ、CMake テンプレート） |
