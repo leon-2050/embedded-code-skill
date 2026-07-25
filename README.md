@@ -1,7 +1,6 @@
 # embedded-code-skill
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.1-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License: MIT" />
   <img src="https://img.shields.io/badge/language-C-A8B9CC?style=flat-square&logo=c&logoColor=white" alt="C" />
   <img src="https://img.shields.io/badge/OpenAI%20Codex-412991?style=flat-square&logo=openai&logoColor=white" alt="OpenAI Codex" />
@@ -39,13 +38,13 @@
 
 ```bash
 # REWRITE：整理 UART 驱动，保留寄存器写入顺序
-/ecs 整理这段 UART 驱动，按三层架构拆分
+/embedded-code-skill 整理这段 UART 驱动，按四层架构拆分
 
 # REVIEW：审查 DMA ISR 风险
-/ecs 审查这段 DMA ISR 是否有竞态或 cache 问题
+/embedded-code-skill 审查这段 DMA ISR 是否有竞态或 cache 问题
 
 # GUIDE：RTOS 任务设计
-/ecs 设计 FreeRTOS 任务优先级和栈大小
+/embedded-code-skill 设计 FreeRTOS 任务优先级和栈大小
 ```
 
 REVIEW 模式的输出示例：
@@ -58,7 +57,7 @@ REVIEW 模式的输出示例：
 
 ---
 
-## 核心设计：三层解耦
+## 核心设计：四层解耦
 
 ```mermaid
 flowchart TB
@@ -69,8 +68,13 @@ flowchart TB
     end
     subgraph DRV["驱动层 Driver · module_drv.h / module_drv.c"]
         direction TB
-        D1["寄存器读写 · ISR · DMA"]
-        D2["✗ 不含业务逻辑   ✗ 不分配 buffer"]
+        D1["时序编排 · ISR · DMA（经 ll 访问硬件）"]
+        D2["✗ 不含业务逻辑   ✗ 不直触寄存器结构体"]
+    end
+    subgraph LL["访问层 Low-level · module_ll.h / module_ll.c"]
+        direction TB
+        L1["寄存器访问函数 · 多步序列 · barrier/回读"]
+        L2["✗ 无状态   ✗ 无时序逻辑"]
     end
     subgraph REG["寄存器层 Register · module_reg.h"]
         direction TB
@@ -79,17 +83,19 @@ flowchart TB
     end
 
     APP -->|"调用公共 API"| DRV
-    DRV -->|"结构体成员访问"| REG
+    DRV -->|"调用访问函数"| LL
+    LL -->|"结构体成员访问"| REG
     DRV -.->|"ISR 经回调通知"| APP
 ```
 
-每个外设五个文件：`module_reg.h` → `module_drv.h/.c` → `module.h/.c`。平铺项目不建 `module/` 子目录，五文件直接平铺在现有目录，隔离标准不变。
+每个外设七个文件：`module_reg.h` → `module_ll.h/.c` → `module_drv.h/.c` → `module.h/.c`。平铺项目不建 `module/` 子目录，七文件直接平铺在现有目录，隔离标准不变。**ll/drv 边界**：ll 只管"怎么读写"（无状态），drv 只管"何时读写"（时序 / ISR / DMA）。
 
 **关键规则一览**：
 
 | 规则 | 一句话 |
 |------|--------|
 | 寄存器结构体化 | 外设寄存器块必须定义为 `*_reg_t` 结构体，禁止散落地址宏 |
+| 访问层隔离 | 仅 `_ll.h/.c` 直触寄存器结构体；drv 一律经访问函数操作硬件 |
 | const 指针契约 | 输入型指针加 `const`，输出型不加——接口自文档化 |
 | Step 编号注释 | 驱动/应用函数体内用 `/* Step N: ... */` 标注关键操作顺序 |
 | 枚举优先 | 关联常量集合用 `typedef enum`，位掩码/地址等独立常量用宏 |
@@ -135,7 +141,7 @@ cd embedded-code-skill
 | §1 | 定位、使用原则、工作模式、RED LINES、优先级裁决 |
 | §2 | Fallback 编码规范：命名 / 类型与错误处理 / 注释 / include / 枚举 / static / 魔数 / 宏安全 |
 | §3 | 寄存器抽象：`*_reg_t` 结构体模板、布局规则、vendor/CMSIS 复用 |
-| §4 | 驱动模板：三层五文件、接口模板、关键结构 |
+| §4 | 驱动模板：四层七文件、ll/drv 边界、接口模板、关键结构 |
 | §5 | 架构规则：Cortex-M / RISC-V / Xtensa 屏障与中断速查、未知架构处理 |
 | §6 | RTOS 场景速查（FreeRTOS / Zephyr / RT-Thread） |
 | §7 | 构建系统与链接：startup、编译器 attribute、CMake |

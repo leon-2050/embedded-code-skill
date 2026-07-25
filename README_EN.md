@@ -1,7 +1,6 @@
 # embedded-code-skill
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.1-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License: MIT" />
   <img src="https://img.shields.io/badge/language-C-A8B9CC?style=flat-square&logo=c&logoColor=white" alt="C" />
   <img src="https://img.shields.io/badge/OpenAI%20Codex-412991?style=flat-square&logo=openai&logoColor=white" alt="OpenAI Codex" />
@@ -38,14 +37,14 @@ A skill file for AI coding agents (Codex / Claude Code / Cursor). Once installed
 ## Quick Start
 
 ```bash
-# REWRITE: clean up a UART driver into three layers
-/ecs Clean up this UART driver, preserve register write order
+# REWRITE: clean up a UART driver into four layers
+/embedded-code-skill Clean up this UART driver, preserve register write order
 
 # REVIEW: audit DMA ISR risks
-/ecs Review this DMA ISR for race or cache issues
+/embedded-code-skill Review this DMA ISR for race or cache issues
 
 # GUIDE: RTOS task design
-/ecs Design FreeRTOS task priorities and stack sizes
+/embedded-code-skill Design FreeRTOS task priorities and stack sizes
 ```
 
 Example REVIEW output:
@@ -58,7 +57,7 @@ Example REVIEW output:
 
 ---
 
-## Core Design: Three-Layer Decoupling
+## Core Design: Four-Layer Decoupling
 
 ```mermaid
 flowchart TB
@@ -69,8 +68,13 @@ flowchart TB
     end
     subgraph DRV["Driver Layer · module_drv.h / module_drv.c"]
         direction TB
-        D1["Register R/W · ISR · DMA"]
-        D2["✗ No business logic   ✗ No buffer allocation"]
+        D1["Sequencing · ISR · DMA (hardware via ll accessors)"]
+        D2["✗ No business logic   ✗ No direct struct access"]
+    end
+    subgraph LL["Access Layer · module_ll.h / module_ll.c"]
+        direction TB
+        L1["Register accessors · multi-step sequences · barrier/read-back"]
+        L2["✗ Stateless   ✗ No sequencing logic"]
     end
     subgraph REG["Register Layer · module_reg.h"]
         direction TB
@@ -79,17 +83,19 @@ flowchart TB
     end
 
     APP -->|"calls public API"| DRV
-    DRV -->|"struct member access"| REG
+    DRV -->|"calls accessors"| LL
+    LL -->|"struct member access"| REG
     DRV -.->|"ISR notifies app via callback"| APP
 ```
 
-Five files per peripheral: `module_reg.h` → `module_drv.h/.c` → `module.h/.c`. Flat projects skip the `module/` subdirectory and place all five files in the existing directory — the isolation standard is identical.
+Seven files per peripheral: `module_reg.h` → `module_ll.h/.c` → `module_drv.h/.c` → `module.h/.c`. Flat projects skip the `module/` subdirectory and place all seven files in the existing directory — the isolation standard is identical. **ll/drv boundary**: ll owns *how to access* (stateless), drv owns *when to access* (sequencing / ISR / DMA).
 
 **Key rules at a glance**:
 
 | Rule | In one sentence |
 |------|-----------------|
 | Register structs | Every peripheral register block becomes a `*_reg_t` struct; scattered address macros are banned |
+| Access-layer isolation | Only `_ll.h/.c` touches the register struct; drivers go through accessor functions |
 | const pointer contract | Input pointers take `const`, output pointers don't — self-documenting APIs |
 | Step comments | Key operations in driver/app function bodies get `/* Step N: ... */` annotations |
 | Enum first | Related constant sets use `typedef enum`; independent values (masks, addresses) use macros |
@@ -135,7 +141,7 @@ Run from inside the repository, the script uses the local `SKILL.md` (works offl
 | §1 | Positioning, principles, work modes, RED LINES, priority arbitration |
 | §2 | Fallback coding standards: naming / types & error handling / comments / includes / enums / static / magic numbers / macro safety |
 | §3 | Register abstraction: `*_reg_t` struct template, layout rules, vendor/CMSIS reuse |
-| §4 | Driver templates: three-layer five-file layout, interface templates, key structures |
+| §4 | Driver templates: four-layer seven-file layout, ll/drv boundary, interface templates, key structures |
 | §5 | Architecture rules: Cortex-M / RISC-V / Xtensa barrier & interrupt quick ref, unknown-architecture handling |
 | §6 | RTOS quick ref (FreeRTOS / Zephyr / RT-Thread) |
 | §7 | Build system & linking: startup, compiler attributes, CMake |

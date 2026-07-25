@@ -1,7 +1,6 @@
 # embedded-code-skill
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.1-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License: MIT" />
   <img src="https://img.shields.io/badge/language-C-A8B9CC?style=flat-square&logo=c&logoColor=white" alt="C" />
   <img src="https://img.shields.io/badge/OpenAI%20Codex-412991?style=flat-square&logo=openai&logoColor=white" alt="OpenAI Codex" />
@@ -38,14 +37,14 @@ AI コーディングエージェント（Codex / Claude Code / Cursor）向け�
 ## クイックスタート
 
 ```bash
-# REWRITE：UART ドライバを三層に整理、書き込み順序を保持
-/ecs この UART ドライバを三層アーキテクチャに整理して
+# REWRITE：UART ドライバを四層に整理、書き込み順序を保持
+/embedded-code-skill この UART ドライバを四層アーキテクチャに整理して
 
 # REVIEW：DMA ISR のリスクを監査
-/ecs この DMA ISR の競合やキャッシュ問題を監査して
+/embedded-code-skill この DMA ISR の競合やキャッシュ問題を監査して
 
 # GUIDE：RTOS タスク設計
-/ecs FreeRTOS のタスク優先度とスタックサイズを設計して
+/embedded-code-skill FreeRTOS のタスク優先度とスタックサイズを設計して
 ```
 
 REVIEW モードの出力例：
@@ -58,7 +57,7 @@ REVIEW モードの出力例：
 
 ---
 
-## コア設計：三層分離
+## コア設計：四層分離
 
 ```mermaid
 flowchart TB
@@ -69,8 +68,13 @@ flowchart TB
     end
     subgraph DRV["ドライバ層 Driver · module_drv.h / module_drv.c"]
         direction TB
-        D1["レジスタ R/W · ISR · DMA"]
-        D2["✗ ビジネスロジック禁止   ✗ バッファ確保禁止"]
+        D1["シーケンス · ISR · DMA（ll 経由でアクセス）"]
+        D2["✗ ビジネスロジック禁止   ✗ 構造体直接アクセス禁止"]
+    end
+    subgraph LL["アクセス層 Low-level · module_ll.h / module_ll.c"]
+        direction TB
+        L1["レジスタアクセサ · 多ステップ列 · barrier/読み戻し"]
+        L2["✗ ステートレス   ✗ シーケンスロジック禁止"]
     end
     subgraph REG["レジスタ層 Register · module_reg.h"]
         direction TB
@@ -79,17 +83,19 @@ flowchart TB
     end
 
     APP -->|"公開 API を呼ぶ"| DRV
-    DRV -->|"構造体メンバでアクセス"| REG
+    DRV -->|"アクセサを呼ぶ"| LL
+    LL -->|"構造体メンバでアクセス"| REG
     DRV -.->|"ISR はコールバックで通知"| APP
 ```
 
-ペリフェラルごとに 5 ファイル：`module_reg.h` → `module_drv.h/.c` → `module.h/.c`。フラットなプロジェクトでは `module/` サブディレクトリを作らず、5 ファイルを既存ディレクトリに直接配置します。分離基準は同じです。
+ペリフェラルごとに 7 ファイル：`module_reg.h` → `module_ll.h/.c` → `module_drv.h/.c` → `module.h/.c`。フラットなプロジェクトでは `module/` サブディレクトリを作らず、7 ファイルを既存ディレクトリに直接配置します。分離基準は同じです。**ll/drv 境界**：ll は「どう読み書きするか」（ステートレス）、drv は「いつ読み書きするか」（シーケンス / ISR / DMA）を担います。
 
 **主要ルール一覧**：
 
 | ルール | 一言で |
 |--------|--------|
 | レジスタ構造体化 | ペリフェラルのレジスタブロックは必ず `*_reg_t` 構造体で定義。アドレスマクロの乱立は禁止 |
+| アクセス層分離 | `_ll.h/.c` のみがレジスタ構造体に直接アクセス。drv は必ずアクセサ経由 |
 | const ポインタ契約 | 入力ポインタには `const`、出力には付けない——自己文書化 API |
 | Step 番号コメント | ドライバ/アプリ関数内の重要操作に `/* Step N: ... */` を付記 |
 | 列挙型優先 | 関連する定数群は `typedef enum`。独立した値（マスク・アドレス）はマクロ |
@@ -135,7 +141,7 @@ cd embedded-code-skill
 | §1 | 定位・使用原則・作業モード・RED LINES・優先度仲裁 |
 | §2 | フォールバック規約：命名 / 型とエラー処理 / コメント / include / 列挙型 / static / マジックナンバー / マクロ安全性 |
 | §3 | レジスタ抽象化：`*_reg_t` 構造体テンプレート・レイアウト規則・vendor/CMSIS 再利用 |
-| §4 | ドライバテンプレート：三層五ファイル・インターフェース・主要構造 |
+| §4 | ドライバテンプレート：四層七ファイル・ll/drv 境界・インターフェース・主要構造 |
 | §5 | アーキテクチャ規則：Cortex-M / RISC-V / Xtensa バリア・割り込み早見表・未知アーキテクチャの扱い |
 | §6 | RTOS 早見表（FreeRTOS / Zephyr / RT-Thread） |
 | §7 | ビルドシステムとリンク：startup・コンパイラ属性・CMake |
