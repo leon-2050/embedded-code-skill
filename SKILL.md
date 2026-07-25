@@ -1,8 +1,6 @@
 ﻿---
-version: 1.0.1
 name: embedded-code-skill
 description: "嵌入式 C 代码规范化助手：驱动骨架、旧代码整理、代码审查、寄存器重构"
-command: embedded-code-skill
 user-invocable: true
 triggers:
   - embedded
@@ -50,21 +48,22 @@ triggers:
 ### 1.2 使用原则
 
 1. 先判 `REWRITE`/`REVIEW`/`GUIDE`（§1.4）→ 读仓库头文件、命名、SDK、已有驱动样例
-2. 遵守 §4 三层架构（reg → drv → app；ISR 回调通知 app）
+2. 遵守 §4 四层架构（reg → ll → drv → app；ISR 回调通知 app）
 3. 项目规范优先；CMSIS/厂商结构体直接复用，不为 fallback 再包一层
 4. 硬件信息缺口先列出；待定值标 placeholder
 5. 输出优先 patch；风格让位于 correctness/并发/硬件风险
-6. **平铺项目同样三层五文件**：不建 `module/` 子目录时，五文件（`module_reg.h` / `module_drv.h` / `module_drv.c` / `module.h` / `module.c`）直接平铺在现有目录：
+6. **平铺项目同样四层七文件**：不建 `module/` 子目录时，七文件（`module_reg.h` / `module_ll.h` / `module_ll.c` / `module_drv.h` / `module_drv.c` / `module.h` / `module.c`）直接平铺在现有目录：
    - `module_reg.h`：结构体、位定义、基址宏（纯定义，无函数）
-   - `module_drv.h/.c`：寄存器读写、ISR、DMA
+   - `module_ll.h/.c`：寄存器访问函数（无状态；barrier/回读/多步序列）
+   - `module_drv.h/.c`：时序编排、ISR、DMA（经 ll 访问硬件）
    - `module.h` 删掉寄存器定义，改为 `#include "module_reg.h"` + 保留对外函数原型
-   目录布局不变，三层隔离标准不变（P1-1 对平铺与带子目录项目同等适用）。
+   目录布局不变，四层隔离标准不变（P1-1 对平铺与带子目录项目同等适用）。
 
 **优先级裁决**（规则冲突时从高到低适用）：
 
 1. 安全红线（P0：伪造硬件/写入时序/volatile/ISR 阻塞/可编译/裸寄存器/malloc）——不让位于任何项目约定
 2. P1 并发与可移植类（static 多实例、类型安全、错误处理、宏安全）——不让位
-3. P1 结构类（三层拆分粒度、文件组织）——项目已有既定架构时让位
+3. P1 结构类（四层拆分粒度、文件组织）——项目已有既定架构时让位
 4. P2 风格类（命名/注释/include 顺序/文件头）——一律让位于项目约定
 
 ### 1.3 前置信息
@@ -100,7 +99,7 @@ triggers:
 - ⑥ 禁业务代码裸寄存器地址
 - ⑦ 禁驱动层/ISR 使用 `malloc`/VLA
 
-> 接口类型安全（P1-7）与三层解耦（P1-1）为 P1 架构级要求，不列入红线。
+> 接口类型安全（P1-7）与四层解耦（P1-1）为 P1 架构级要求，不列入红线。
 
 ---
 
@@ -227,16 +226,16 @@ embedded_code_status_t uartDrvInit(uart_drv_handle_t *p_handle, const uart_confi
     VALIDATE_NOT_NULL(p_config);
 
     /* Step 2: 禁用 UART，避免配置过程中产生意外中断 */
-    UART1_REG->CTRL &= ~UART_CTRL_EN_MASK;
+    uartLlDisable(p_handle->regs);
 
     /* Step 3: 配置波特率（值来自参考手册 §23.4.2 公式） */
-    UART1_REG->BAUD = calcBaudDivider(p_config->baud_rate);
+    uartLlSetBaudDiv(p_handle->regs, calcBaudDivider(p_config->baud_rate));
 
     /* Step 4: 等待波特率发生器稳定（≥2 个 PCLK 周期） */
     for (volatile uint32_t i = 0U; i < UART_BAUD_SETTLE_CYCLES; i++) { __NOP(); }
 
     /* Step 5: 使能外设，标记初始化完成 */
-    UART1_REG->CTRL |= UART_CTRL_EN_MASK;
+    uartLlEnable(p_handle->regs);
     p_handle->initialized = true;
     return EMBED_CODE_OK;
 }
@@ -769,22 +768,26 @@ UART1_REG->DATA = tx_byte;
 
 ## 4. 驱动模板
 
-模板仅示组织方式；offset/reset/errata 须来自目标资料。三层五文件：reg（纯定义）→ drv（寄存器/ISR/DMA）→ app（缓冲/协议/API）。
+模板仅示组织方式；offset/reset/errata 须来自目标资料。四层七文件：reg（纯定义）→ ll（寄存器访问）→ drv（时序/ISR/DMA）→ app（缓冲/协议/API）。
 
-> **`module/` 子目录为示范性组织方式，非编译硬约束**。平铺项目不建 `module/` 子目录，但五文件（`module_reg.h` / `module_drv.h` / `module_drv.c` / `module.h` / `module.c`）照样建齐，直接平铺在现有目录（见 §1.2-6）。三层隔离标准对平铺与带子目录项目一致。
+> **`module/` 子目录为示范性组织方式，非编译硬约束**。平铺项目不建 `module/` 子目录，但七文件照样建齐，直接平铺在现有目录（见 §1.2-6）。四层隔离标准对平铺与带子目录项目一致。
 
 ### 4.1 统一结构
 
 ```text
 module/
 ├── module_reg.h    # 寄存器结构体、位定义、基地址宏 — 无 .c，无函数实现
-├── module_drv.h    # 驱动层：寄存器读写、ISR、DMA  — 不含业务逻辑、不分配 buffer
+├── module_ll.h     # 访问层：寄存器访问函数声明（单步访问可 static inline）
+├── module_ll.c     # 访问层：多步访问序列（清标志/读 FIFO/barrier/回读）
+├── module_drv.h    # 驱动层：时序编排、ISR、DMA — 经 ll 访问硬件，不直触寄存器结构体
 ├── module_drv.c
 ├── module.h        # 应用层：缓冲管理、协议处理、对外 API — 不直写寄存器、不含 ISR
 └── module.c
 ```
 
-调用链：应用层 → 驱动层 → 寄存器层。驱动层 ISR 通过函数指针回调通知应用层，不直接操作 ring buffer。
+调用链：应用层 → 驱动层 → 访问层 → 寄存器层。驱动层 ISR 通过函数指针回调通知应用层，不直接操作 ring buffer。
+
+> **ll/drv 边界**：ll 回答"怎么读写"——无状态、无逻辑决策，barrier/回读/多步序列只许出现在此；drv 回答"何时读写、按什么顺序"（时序、状态机、ISR、DMA）。
 
 ### 4.2 接口模板
 
@@ -795,11 +798,13 @@ module/
 | GPIO | `gpioDrvInit/WritePin/ReadPin/TogglePin/EnableIRQ/RegisterCallback/IRQHandler` | `gpioInit/WritePin/ReadPin/TogglePin/SetCallback` |
 | DMA | `dmaDrvChannelInit/Start/Abort/IsComplete/IRQHandler` | `dmaChannelInit/StartTransfer/AbortTransfer/IsTransferComplete` |
 
-app 的 IT/DMA 只编排缓冲与回调，委托 drv，不直写寄存器、不实现 ISR。
+**访问层接口（`_ll.h`）**：细粒度寄存器访问函数，命名 `xxxLlVerb`，如 `uartLlEnable/Disable/SetBaudDiv/WriteData/ReadData/ClearRxFlag/GetStatus`；无状态、不返回业务错误码（参数校验在 drv）。
 
-**Init 模式（驱动层）**：禁用外设 → 配置参数（值来自厂商或 PLACEHOLDER）→ 清挂起标志 → 使能 → 标记 initialized
+app 的 IT/DMA 只编排缓冲与回调，委托 drv；drv 经 ll 访问硬件，不直触寄存器结构体。
 
-**ISR 模式（驱动层）**：读 STATUS → 按 mask 分支 → 回调通知应用层 → 清中断标志 → 从不阻塞
+**Init 模式（驱动层）**：经 ll 禁用外设 → 配置参数（值来自厂商或 PLACEHOLDER）→ 清挂起标志 → 使能 → 标记 initialized
+
+**ISR 模式（驱动层）**：经 ll 读 STATUS → 按 mask 分支 → 回调通知应用层 → 经 ll 清中断标志 → 从不阻塞
 
 ### 4.3 关键结构
 
@@ -813,6 +818,8 @@ app 的 IT/DMA 只编排缓冲与回调，委托 drv，不直写寄存器、不�
 | GPIO | `MODE, INPUT/DATA, OUTPUT_DATA, BIT_SET_RESET` | `regs, pin_map` | `pin_callbacks[], gpio_mode_t, drv_handle` |
 | Timer | `CTRL, COUNT, AUTO_RELOAD, PRESCALER` | `regs, prescaler, auto_reload` | `period, callback, drv_handle` |
 | Watchdog | `KEY, RELOAD, STATUS` | `regs, key_reg` | `timeout_ms, drv_handle` |
+
+访问层（ll）无状态、无句柄，不列入本表；其接口规范见 §4.2。
 
 ---
 
@@ -910,7 +917,7 @@ MEMORY 中 FLASH 放 `.text`/`.rodata`，RAM 放 `.data`/`.bss`；`__data_start/
 | P0-3 | ISR 与主循环共享变量有 `volatile` | 所有被 ISR 写+主循环读（或反向）的变量声明处有 `volatile` | §1.5-③, §8 |
 | P0-4 | ISR 无阻塞调用 | ISR 内无 delay/malloc/mutex/printf；RTOS 环境下仅用 ISR 安全 API（如 FreeRTOS 的 `...FromISR()` 变体） | §1.5-④, §6 |
 | P0-5 | 输出可编译 | 类型名/枚举值/宏名拼写一致；宏展开后语法正确；函数签名与声明匹配 | §1.5-⑤ |
-| P0-6 | 无裸寄存器地址 | 业务代码中无 `*(volatile uint32_t *)0x400xxxxx`；所有寄存器访问通过寄存器结构体成员（自定义 `*_reg_t` 或复用 vendor/CMSIS 结构体，见 §3.5） | §1.5-⑥, §3.1 |
+| P0-6 | 无裸寄存器地址 | 业务代码中无 `*(volatile uint32_t *)0x400xxxxx`；寄存器结构体成员访问集中在访问层 `_ll.h/.c`（自定义 `*_reg_t` 或复用 vendor/CMSIS 结构体，见 §3.5） | §1.5-⑥, §3.1 |
 | P0-7 | 禁 malloc/VLA | 驱动层和 ISR 中无 `malloc`/`calloc`/`realloc`/`free`；无 VLA | §1.5-⑦, §8 |
 
 ---
@@ -919,7 +926,7 @@ MEMORY 中 FLASH 放 `.text`/`.rodata`，RAM 放 `.data`/`.bss`；`__data_start/
 
 | # | 检查项 | 判定标准 | 规则来源 |
 |---|--------|----------|----------|
-| P1-1 | 三层解耦 | 应用层（`module.h/.c`）不直写寄存器；驱动层（`module_drv.h/.c`）不含业务逻辑；寄存器定义在 `module_reg.h` | §4.1, §4.2 |
+| P1-1 | 四层解耦 | 应用层不直写寄存器、不含 ISR；驱动层不含业务逻辑、不直触寄存器结构体（经 `_ll.h` 访问函数）；访问层（`_ll.h/.c`）无状态、无时序逻辑；寄存器定义在 `module_reg.h` | §4.1, §4.2 |
 | P1-2 | 寄存器结构体完整 | 每个外设寄存器块有 `*_reg_t` 结构体；`reserved` 区域占位；只读寄存器标 `const volatile` | §3.1, §3.3 |
 | P1-3 | MASK/SHIFT 宏配对 | 每个可写位域有 `_MASK` 和 `_SHIFT` 两个宏；无 C 位域用于寄存器定义 | §3.2, §3.3 |
 | P1-4 | 宏定义安全 | 所有宏参数加括号；多语句宏用 `do { } while(0)`；无 `##` 拼接歧义 | §2.9 |
