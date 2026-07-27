@@ -81,7 +81,7 @@ triggers:
 
 ### 1.4 工作模式
 
-**REWRITE**：保留 public API、ABI、寄存器写入顺序与时序序列；按 §4 整理类型/命名/分层。输出：简述 → 缺口 → patch（必要时文件布局）。workaround 标 `/* 有意保留：原因 */`。
+**REWRITE**：按 §4 整理类型/命名/分层。输出：简述 → 缺口 → patch（必要时文件布局）。workaround 标 `/* 有意保留：原因 */`。
 
 **REVIEW**：不产出代码。按寄存器抽象 → 分层/ISR/同步 → volatile/barrier/cache/DMA → 错误处理/内存 顺序查。输出表：`| P0/P1/P2 | 位置 | 问题 | 建议 |`（P0 行为/安全，P1 并发/可移植，P2 风格）。
 
@@ -968,7 +968,6 @@ MEMORY 中 FLASH 放 `.text`/`.rodata`，RAM 放 `.data`/`.bss`；`__data_start/
 
 修改本 skill 后，用以下场景做 smoke check：
 
-- `REWRITE`：保留 public API、ABI、寄存器写入顺序
 - `REVIEW`：优先指出 race/volatile/barrier/ownership 风险
 - RTOS：共享数据有互斥保护，ISR 只用 ISR 安全 API
 - 自洽：用本 skill 自身的示例代码过一遍 P0–P2 清单，必须全部通过
